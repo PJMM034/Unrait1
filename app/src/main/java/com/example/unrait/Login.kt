@@ -185,8 +185,8 @@ fun RegistroScreen() {
     var password by remember { mutableStateOf("") }
     var confirmPassword by remember { mutableStateOf("") }
 
-    // NUEVOS CAMPOS PARA RENAPO
-    var curp by remember { mutableStateOf("") }
+    // NUEVOS CAMPOS PARA REGISTRO
+    var numControl by remember { mutableStateOf("") }
     var fechaNacimiento by remember { mutableStateOf("") }
     var apellidoPaterno by remember { mutableStateOf("") }
     var apellidoMaterno by remember { mutableStateOf("") }
@@ -236,7 +236,7 @@ fun RegistroScreen() {
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        // ===== SECCIÓN DE CURP =====
+        // ===== SECCIÓN DE NÚMERO DE CONTROL =====
         Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(
@@ -248,7 +248,7 @@ fun RegistroScreen() {
                 modifier = Modifier.padding(16.dp)
             ) {
                 Text(
-                    text = "Validación con CURP",
+                    text = "Validación con Número de Control",
                     fontWeight = FontWeight.Bold,
                     color = NavyBlue,
                     fontSize = 16.sp
@@ -256,22 +256,22 @@ fun RegistroScreen() {
 
                 Spacer(modifier = Modifier.height(8.dp))
 
-                // Campo CURP
+                // Campo Número de Control
                 OutlinedTextField(
-                    value = curp,
+                    value = numControl,
                     onValueChange = {
-                        curp = it.uppercase().filter { char -> char.isLetterOrDigit() }
-                        if (curp.length > 18) curp = curp.substring(0, 18)
+                        numControl = it.uppercase().filter { char -> char.isLetterOrDigit() }
+                        if (numControl.length > 8) numControl = numControl.substring(0, 8)
                         datosValidados = false
                     },
-                    label = { Text("CURP") },
+                    label = { Text("Número de Control") },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
-                    isError = curp.isNotEmpty() && curp.length != 18,
+                    isError = numControl.isNotEmpty() && numControl.length != 8,
                     supportingText = {
-                        if (curp.isNotEmpty() && curp.length != 18) {
+                        if (numControl.isNotEmpty() && numControl.length != 8) {
                             Text(
-                                text = "La CURP debe tener 18 caracteres",
+                                text = "El número de control debe tener 8 caracteres",
                                 color = MaterialTheme.colorScheme.error,
                                 fontSize = 12.sp
                             )
@@ -290,7 +290,7 @@ fun RegistroScreen() {
                         errorLabelColor = Color.Red
                     ),
                     trailingIcon = {
-                        if (curp.length == 18 && !datosValidados) {
+                        if (numControl.length == 8 && !datosValidados) {
                             IconButton(
                                 onClick = {
                                     // Aquí validarías con la API
@@ -580,7 +580,7 @@ fun RegistroScreen() {
             modifier = Modifier
                 .fillMaxWidth()
                 .height(56.dp),
-            enabled = curp.length == 18 &&
+            enabled = numControl.length == 8 &&
                     datosValidados &&
                     email.isNotEmpty() &&
                     password.isNotEmpty() &&

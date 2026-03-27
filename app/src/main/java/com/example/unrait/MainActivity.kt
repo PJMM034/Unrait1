@@ -10,11 +10,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -26,13 +23,17 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
 import com.example.unrait.ui.theme.UnraitTheme
+import com.google.android.gms.maps.model.CameraPosition
+import com.google.android.gms.maps.model.LatLng
+import com.google.maps.android.compose.GoogleMap
+import com.google.maps.android.compose.Marker
+import com.google.maps.android.compose.rememberMarkerState
+import com.google.maps.android.compose.rememberCameraPositionState
 
 // Colores de la app
 val NavyBlue = Color(0xFF1B2A47)
@@ -47,7 +48,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            UnraitTheme() {
+            UnraitTheme {
                 HomeScreen()
             }
         }
@@ -56,16 +57,16 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun HomeScreen() {
-    // Estado para controlar el menú lateral
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
 
-    // Según el valor de mostrarPantalla, mostramos una pantalla u otra
     when (mostrarPantalla.value) {
         "main" -> {
-            // Pantalla principal con el menú
             ModalNavigationDrawer(
                 drawerState = drawerState,
+                // DESACTIVAR GESTOS SI EL DRAWER ESTÁ CERRADO
+                // Esto permite mover el mapa sin abrir el menú lateral
+                gesturesEnabled = drawerState.isOpen,
                 drawerContent = {
                     DrawerContent(
                         alCerrarDrawer = { scope.launch { drawerState.close() } }
@@ -91,24 +92,27 @@ fun HomeScreen() {
                             .background(Color.White),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text(
-                            text = "Mapa de Transporte",
-                            color = Color.Gray,
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.Bold
-                        )
+                        val laPaz = remember { LatLng(-16.4897, -68.1193) }
+                        val cameraPositionState = rememberCameraPositionState {
+                            position = CameraPosition.fromLatLngZoom(laPaz, 13f)
+                        }
+
+                        GoogleMap(
+                            modifier = Modifier.fillMaxSize(),
+                            cameraPositionState = cameraPositionState
+                        ) {
+                            Marker(
+                                state = rememberMarkerState(position = laPaz),
+                                title = "La Paz",
+                                snippet = "Centro de la ciudad"
+                            )
+                        }
                     }
                 }
             }
         }
-        "login" -> {
-            // Pantalla de Iniciar Sesión
-            LoginScreen()
-        }
-        "registro" -> {
-            // Pantalla de Registro
-            RegistroScreen()
-        }
+        "login" -> LoginScreen()
+        "registro" -> RegistroScreen()
     }
 }
 
@@ -118,7 +122,6 @@ fun DrawerContent(alCerrarDrawer: () -> Unit) {
         drawerContainerColor = Color.White,
         modifier = Modifier.width(300.dp)
     ) {
-        // Encabezado del Drawer
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -140,7 +143,6 @@ fun DrawerContent(alCerrarDrawer: () -> Unit) {
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        // Opciones del menú
         DrawerMenuItem(icon = Icons.Filled.People, text = "Amigos")
         DrawerMenuItem(icon = Icons.Filled.Place, text = "Lugares")
         DrawerMenuItem(icon = Icons.Filled.History, text = "Historial")
@@ -148,17 +150,15 @@ fun DrawerContent(alCerrarDrawer: () -> Unit) {
         DrawerMenuItem(icon = Icons.Filled.CheckCircle, text = "Disponibles")
         DrawerMenuItem(icon = Icons.Filled.LocationCity, text = "Localidades")
 
-        // Separador
         Spacer(modifier = Modifier.height(16.dp))
-        Divider(color = Color.LightGray, thickness = 1.dp)
+        HorizontalDivider(color = Color.LightGray, thickness = 1.dp)
 
-        // Botón de Iniciar Sesión
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .clickable {
-                    alCerrarDrawer()  // Cierra el menú
-                    mostrarPantalla.value = "login"  // Cambia a la pantalla de login
+                    alCerrarDrawer()
+                    mostrarPantalla.value = "login"
                 }
                 .padding(horizontal = 24.dp, vertical = 16.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -180,15 +180,12 @@ fun DrawerContent(alCerrarDrawer: () -> Unit) {
     }
 }
 
-// Esta función es para los otros items del menú
 @Composable
 fun DrawerMenuItem(icon: ImageVector, text: String) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable {
-                // Por ahora no hacen nada
-            }
+            .clickable { }
             .padding(horizontal = 24.dp, vertical = 16.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -222,7 +219,6 @@ fun TopSection(onOpenDrawer: () -> Unit) {
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Botón para abrir el menú
             IconButton(onClick = onOpenDrawer) {
                 Icon(
                     Icons.Filled.AccountCircle,
@@ -232,7 +228,6 @@ fun TopSection(onOpenDrawer: () -> Unit) {
                 )
             }
 
-            // Título UNRAIT
             Text(
                 text = "UNRAIT",
                 color = OrangePrimary,
@@ -241,7 +236,6 @@ fun TopSection(onOpenDrawer: () -> Unit) {
                 letterSpacing = 2.sp
             )
 
-            // Menú de 3 puntos
             Box {
                 IconButton(onClick = { showMenu = true }) {
                     Icon(
@@ -272,7 +266,6 @@ fun TopSection(onOpenDrawer: () -> Unit) {
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Barra de búsqueda
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
@@ -305,7 +298,6 @@ fun TopSection(onOpenDrawer: () -> Unit) {
 
             Spacer(modifier = Modifier.width(12.dp))
 
-            // Icono de notificaciones
             Box(contentAlignment = Alignment.TopEnd) {
                 IconButton(onClick = { }) {
                     Icon(
@@ -315,7 +307,6 @@ fun TopSection(onOpenDrawer: () -> Unit) {
                         modifier = Modifier.size(28.dp)
                     )
                 }
-                // Punto rojo de notificación
                 Box(
                     modifier = Modifier
                         .size(10.dp)
@@ -330,7 +321,7 @@ fun TopSection(onOpenDrawer: () -> Unit) {
 
 @Composable
 fun BottomNavSection() {
-    var selectedItem by remember { mutableStateOf(1) }
+    var selectedItem by remember { mutableIntStateOf(1) }
     var showModal by remember { mutableStateOf(false) }
 
     Row(
@@ -341,16 +332,14 @@ fun BottomNavSection() {
         horizontalArrangement = Arrangement.SpaceEvenly,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Botón de Home
         AnimatedNavItem(
             icon = Icons.Filled.Home,
             isSelected = selectedItem == 1,
             isCenter = true
         ) {
-            // No hace nada por ahora
+            selectedItem = 1
         }
 
-        // Botón de Search
         AnimatedNavItem(
             icon = Icons.Filled.Search,
             isSelected = selectedItem == 1,
@@ -360,7 +349,6 @@ fun BottomNavSection() {
             showModal = true
         }
 
-        // Botón de Bus
         AnimatedNavItem(
             icon = Icons.Filled.DirectionsBus,
             isSelected = selectedItem == 2
@@ -369,11 +357,8 @@ fun BottomNavSection() {
         }
     }
 
-    // Ventana modal de búsqueda
     if (showModal) {
-        SearchModal(
-            onClose = { showModal = false }
-        )
+        SearchModal(onClose = { showModal = false })
     }
 }
 
@@ -387,65 +372,34 @@ fun SearchModal(onClose: () -> Unit) {
         confirmButton = {},
         text = {
             Column {
-                // Título y botón cerrar
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Text(
-                        text = "¿A dónde vamos?",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 18.sp
-                    )
-
+                    Text(text = "¿A dónde vamos?", fontWeight = FontWeight.Bold, fontSize = 18.sp)
                     IconButton(onClick = onClose) {
                         Icon(Icons.Default.Close, contentDescription = "Cerrar")
                     }
                 }
-
                 Spacer(modifier = Modifier.height(10.dp))
-
-                // Campo de origen
                 OutlinedTextField(
                     value = origen,
                     onValueChange = { origen = it },
                     label = { Text("Punto de partida") },
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = OrangePrimary,
-                        unfocusedBorderColor = Color.Gray,
-                        focusedLabelColor = OrangePrimary,
-                        unfocusedLabelColor = Color.Gray,
-                        cursorColor = OrangePrimary
-                    )
+                    modifier = Modifier.fillMaxWidth()
                 )
-
                 Spacer(modifier = Modifier.height(10.dp))
-
-                // Campo de destino
                 OutlinedTextField(
                     value = destino,
                     onValueChange = { destino = it },
                     label = { Text("Destino") },
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = OrangePrimary,
-                        unfocusedBorderColor = Color.Gray,
-                        focusedLabelColor = OrangePrimary,
-                        unfocusedLabelColor = Color.Gray,
-                        cursorColor = OrangePrimary
-                    )
+                    modifier = Modifier.fillMaxWidth()
                 )
-
                 Spacer(modifier = Modifier.height(10.dp))
-
-                // Botón de buscar
                 Button(
                     onClick = { },
                     modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = OrangePrimary
-                    )
+                    colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary)
                 ) {
                     Text("Buscar")
                 }
@@ -495,7 +449,7 @@ fun AnimatedNavItem(
 @Preview(showBackground = true)
 @Composable
 fun HomeScreenPreview() {
-    UnraitTheme() {
+    UnraitTheme {
         HomeScreen()
     }
 }
