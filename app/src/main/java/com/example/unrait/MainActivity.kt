@@ -43,6 +43,17 @@ val WhiteBackground = Color(0xFFF5F5F5)
 // Variable para controlar qué pantalla mostrar
 var mostrarPantalla = mutableStateOf("main")
 
+// Datos compartidos para la confirmación del viaje
+var viajeDetalle = mutableStateOf<ViajeConfirmado?>(null)
+
+data class ViajeConfirmado(
+    val origen: String,
+    val destino: String,
+    val vehiculoNombre: String,
+    val precio: String,
+    val iconoVehiculo: ImageVector
+)
+
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -64,8 +75,6 @@ fun HomeScreen() {
         "main" -> {
             ModalNavigationDrawer(
                 drawerState = drawerState,
-                // DESACTIVAR GESTOS SI EL DRAWER ESTÁ CERRADO
-                // Esto permite mover el mapa sin abrir el menú lateral
                 gesturesEnabled = drawerState.isOpen,
                 drawerContent = {
                     DrawerContent(
@@ -113,6 +122,8 @@ fun HomeScreen() {
         }
         "login" -> LoginScreen()
         "registro" -> RegistroScreen()
+        "viajes" -> ViajesScreen()
+        "confirmacion" -> ConfirmacionViajeScreen()
     }
 }
 
@@ -146,7 +157,14 @@ fun DrawerContent(alCerrarDrawer: () -> Unit) {
         DrawerMenuItem(icon = Icons.Filled.People, text = "Amigos")
         DrawerMenuItem(icon = Icons.Filled.Place, text = "Lugares")
         DrawerMenuItem(icon = Icons.Filled.History, text = "Historial")
-        DrawerMenuItem(icon = Icons.Filled.DirectionsBus, text = "Viajes")
+        DrawerMenuItem(
+            icon = Icons.Filled.DirectionsBus,
+            text = "Viajes",
+            onClick = {
+                alCerrarDrawer()
+                mostrarPantalla.value = "viajes"
+            }
+        )
         DrawerMenuItem(icon = Icons.Filled.CheckCircle, text = "Disponibles")
         DrawerMenuItem(icon = Icons.Filled.LocationCity, text = "Localidades")
 
@@ -181,11 +199,11 @@ fun DrawerContent(alCerrarDrawer: () -> Unit) {
 }
 
 @Composable
-fun DrawerMenuItem(icon: ImageVector, text: String) {
+fun DrawerMenuItem(icon: ImageVector, text: String, onClick: () -> Unit = {}) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { }
+            .clickable(onClick = onClick)
             .padding(horizontal = 24.dp, vertical = 16.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -338,14 +356,14 @@ fun BottomNavSection() {
             isCenter = true
         ) {
             selectedItem = 1
+            mostrarPantalla.value = "main"
         }
 
         AnimatedNavItem(
             icon = Icons.Filled.Search,
-            isSelected = selectedItem == 1,
+            isSelected = false,
             isCenter = true
         ){
-            selectedItem = 1
             showModal = true
         }
 
@@ -354,6 +372,7 @@ fun BottomNavSection() {
             isSelected = selectedItem == 2
         ) {
             selectedItem = 2
+            mostrarPantalla.value = "viajes"
         }
     }
 
