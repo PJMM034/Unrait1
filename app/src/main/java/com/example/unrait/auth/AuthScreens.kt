@@ -22,6 +22,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.unrait.NavyBlue
 
 val NavyBlue = Color(0xFF1B2A47)
 val OrangePrimary = Color(0xFFE66A25)

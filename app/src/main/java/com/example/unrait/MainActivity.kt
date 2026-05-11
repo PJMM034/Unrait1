@@ -60,6 +60,7 @@ import com.example.unrait.ui.screens.auth.RegistroScreen
 import com.example.unrait.ui.screens.ride.PedirRaiteScreen
 import com.example.unrait.ui.screens.ride.DetallesViajeScreen
 import com.example.unrait.ui.screens.ride.SeguimientoViajeScreen
+import com.example.unrait.ui.screens.ride.ConductorScreen // <-- NUEVO IMPORT
 import com.example.unrait.ui.theme.UnraitTheme
 
 import com.example.unrait.ui.screens.drawer.AmigosScreen
@@ -68,7 +69,7 @@ import com.example.unrait.ui.screens.drawer.HistorialScreen
 import com.example.unrait.ui.screens.drawer.LocalidadesScreen
 import com.example.unrait.ui.screens.drawer.LugaresScreen
 import com.example.unrait.ui.screens.drawer.ProfileScreen
-import com.example.unrait.ui.screens.drawer.AjustesScreen // <-- IMPORT DE AJUSTES
+import com.example.unrait.ui.screens.drawer.AjustesScreen 
 
 // Colores de la app
 val NavyBlue = Color(0xFF1B2A47)
@@ -107,6 +108,7 @@ fun HomeScreen() {
         when (mostrarPantalla.value) {
             "detalles_viaje" -> mostrarPantalla.value = "pedir_raite"
             "registro" -> mostrarPantalla.value = "login"
+            "conductor" -> mostrarPantalla.value = "main"
             else -> mostrarPantalla.value = "main"
         }
     }
@@ -160,8 +162,8 @@ fun HomeScreen() {
                         TopSection(
                             onOpenDrawer = { scope.launch { drawerState.open() } },
                             onNotificationClick = { mostrarPantalla.value = "seguimiento_viaje" },
-                            onOpenAjustes = { mostrarPantalla.value = "ajustes" }, // CONECTADO
-                            onOpenComentarios = { showComentariosModal = true }    // CONECTADO
+                            onOpenAjustes = { mostrarPantalla.value = "ajustes" },
+                            onOpenComentarios = { showComentariosModal = true }
                         )
                     },
                     bottomBar = { BottomNavSection() }
@@ -191,7 +193,6 @@ fun HomeScreen() {
                 }
             }
 
-            // --- MODAL DE COMENTARIOS ---
             if (showComentariosModal) {
                 ComentariosModal(onClose = { showComentariosModal = false })
             }
@@ -201,21 +202,22 @@ fun HomeScreen() {
         "pedir_raite" -> PedirRaiteScreen(onBack = { mostrarPantalla.value = "main" })
         "detalles_viaje" -> DetallesViajeScreen(onBack = { mostrarPantalla.value = "pedir_raite" })
         "seguimiento_viaje" -> SeguimientoViajeScreen(onFinalizar = { mostrarPantalla.value = "main" })
+        "conductor" -> ConductorScreen(onBack = { mostrarPantalla.value = "main" }) // <-- NUEVA RUTA
 
-        // --- RUTAS SECUNDARIAS ---
         "perfil" -> ProfileScreen(onBack = { mostrarPantalla.value = "main" })
         "amigos" -> AmigosScreen(onBack = { mostrarPantalla.value = "main" })
         "lugares" -> LugaresScreen(onBack = { mostrarPantalla.value = "main" })
         "historial" -> HistorialScreen(onBack = { mostrarPantalla.value = "main" })
         "disponibles" -> DisponiblesScreen(onBack = { mostrarPantalla.value = "main" })
         "localidades" -> LocalidadesScreen(onBack = { mostrarPantalla.value = "main" })
-        "ajustes" -> AjustesScreen(onBack = { mostrarPantalla.value = "main" }) // <-- NUEVA RUTA
+        "ajustes" -> AjustesScreen(onBack = { mostrarPantalla.value = "main" })
     }
 }
 
 // =====================================================================
-// COMPONENTE: MODAL DE COMENTARIOS ANIMADO
+// COMPONENTES DE APOYO (MODALS, TOPBAR, BOTTOMNAV, DRAWER)
 // =====================================================================
+
 @Composable
 fun ComentariosModal(onClose: () -> Unit) {
     var tema by remember { mutableStateOf("") }
@@ -223,14 +225,12 @@ fun ComentariosModal(onClose: () -> Unit) {
     var enviado by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
-    // Animación de la palomita
     val scale by animateFloatAsState(
         targetValue = if (enviado) 1.5f else 0f,
         animationSpec = tween(durationMillis = 500, easing = { androidx.compose.animation.core.FastOutSlowInEasing.transform(it) }),
         label = "escala_palomita"
     )
 
-    // Estilo forzado para que el texto escrito siempre sea legible
     val textStyleDark = TextStyle(color = NavyBlue, fontSize = 16.sp)
 
     AlertDialog(
@@ -252,11 +252,11 @@ fun ComentariosModal(onClose: () -> Unit) {
                             label = { Text("Tema") },
                             modifier = Modifier.fillMaxWidth(),
                             singleLine = true,
-                            textStyle = textStyleDark, // <-- FUERZA EL COLOR DEL TEXTO
+                            textStyle = textStyleDark,
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedBorderColor = OrangePrimary,
                                 focusedLabelColor = OrangePrimary,
-                                unfocusedLabelColor = Color.DarkGray, // Etiqueta gris oscuro cuando no lo tocas
+                                unfocusedLabelColor = Color.DarkGray,
                                 unfocusedBorderColor = Color.LightGray
                             )
                         )
@@ -267,7 +267,7 @@ fun ComentariosModal(onClose: () -> Unit) {
                             label = { Text("Descripción") },
                             modifier = Modifier.fillMaxWidth().height(120.dp),
                             maxLines = 5,
-                            textStyle = textStyleDark, // <-- FUERZA EL COLOR DEL TEXTO
+                            textStyle = textStyleDark,
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedBorderColor = OrangePrimary,
                                 focusedLabelColor = OrangePrimary,
@@ -282,9 +282,8 @@ fun ComentariosModal(onClose: () -> Unit) {
                             Button(
                                 onClick = {
                                     enviado = true
-                                    // Cerrar automáticamente después de 2 segundos de ver la palomita
                                     scope.launch {
-                                        kotlinx.coroutines.delay(2000)
+                                        delay(2000)
                                         onClose()
                                     }
                                 },
@@ -296,12 +295,11 @@ fun ComentariosModal(onClose: () -> Unit) {
                         }
                     }
                 } else {
-                    // PANTALLA DE ÉXITO ANIMADA
                     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(vertical = 32.dp)) {
                         Icon(
                             Icons.Filled.CheckCircle,
                             contentDescription = "Éxito",
-                            tint = Color(0xFF4CAF50), // Verde brillante
+                            tint = Color(0xFF4CAF50),
                             modifier = Modifier.size(60.dp).scale(scale)
                         )
                         Spacer(modifier = Modifier.height(16.dp))
@@ -313,7 +311,6 @@ fun ComentariosModal(onClose: () -> Unit) {
         }
     )
 }
-// =====================================================================
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -377,7 +374,6 @@ fun BuscadorComondu(
     }
 }
 
-// SE RECIBEN LAS NUEVAS FUNCIONES PARA LOS MENÚS
 @Composable
 fun TopSection(
     onOpenDrawer: () -> Unit,
@@ -408,12 +404,12 @@ fun TopSection(
                 DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }, modifier = Modifier.background(Color.White)) {
                     DropdownMenuItem(
                         text = { Text("Ajustes", color = NavyBlue) },
-                        onClick = { showMenu = false; onOpenAjustes() }, // CONECTADO
+                        onClick = { showMenu = false; onOpenAjustes() },
                         leadingIcon = { Icon(Icons.Filled.Settings, tint = Color.Gray, contentDescription = null) }
                     )
                     DropdownMenuItem(
                         text = { Text("Comentarios", color = NavyBlue) },
-                        onClick = { showMenu = false; onOpenComentarios() }, // CONECTADO
+                        onClick = { showMenu = false; onOpenComentarios() },
                         leadingIcon = { Icon(Icons.Filled.Comment, tint = Color.Gray, contentDescription = null) }
                     )
                 }
@@ -454,7 +450,7 @@ fun BottomNavSection() {
         horizontalArrangement = Arrangement.SpaceEvenly,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        AnimatedNavItem(icon = Icons.Filled.Home, isSelected = true) {}
+        AnimatedNavItem(icon = Icons.Filled.Home, isSelected = true) { mostrarPantalla.value = "main" }
         AnimatedNavItem(icon = Icons.Filled.Search, isSelected = false) { showModal = true }
         AnimatedNavItem(icon = Icons.Filled.DirectionsBus, isSelected = false) { mostrarPantalla.value = "pedir_raite" }
     }
@@ -517,6 +513,7 @@ fun DrawerContent(alCerrarDrawer: () -> Unit) {
             }
         }
         Spacer(modifier = Modifier.height(8.dp))
+        DrawerMenuItem(icon = Icons.Filled.DriveEta, text = "Modo Conductor") { alCerrarDrawer(); mostrarPantalla.value = "conductor" }
         DrawerMenuItem(icon = Icons.Filled.People, text = "Amigos") { alCerrarDrawer(); mostrarPantalla.value = "amigos" }
         DrawerMenuItem(icon = Icons.Filled.Place, text = "Lugares") { alCerrarDrawer(); mostrarPantalla.value = "lugares" }
         DrawerMenuItem(icon = Icons.Filled.History, text = "Historial") { alCerrarDrawer(); mostrarPantalla.value = "historial" }
