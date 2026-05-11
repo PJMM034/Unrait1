@@ -60,6 +60,7 @@ import com.example.unrait.ui.screens.auth.RegistroScreen
 import com.example.unrait.ui.screens.ride.PedirRaiteScreen
 import com.example.unrait.ui.screens.ride.DetallesViajeScreen
 import com.example.unrait.ui.screens.ride.SeguimientoViajeScreen
+import com.example.unrait.ui.screens.ride.ConductorScreen // <-- IMPORT DE CONDUCTOR
 import com.example.unrait.ui.theme.UnraitTheme
 
 import com.example.unrait.ui.screens.drawer.AmigosScreen
@@ -107,6 +108,7 @@ fun HomeScreen() {
         when (mostrarPantalla.value) {
             "detalles_viaje" -> mostrarPantalla.value = "pedir_raite"
             "registro" -> mostrarPantalla.value = "login"
+            "conductor" -> mostrarPantalla.value = "main"
             else -> mostrarPantalla.value = "main"
         }
     }
@@ -210,6 +212,7 @@ fun HomeScreen() {
         "disponibles" -> DisponiblesScreen(onBack = { mostrarPantalla.value = "main" })
         "localidades" -> LocalidadesScreen(onBack = { mostrarPantalla.value = "main" })
         "ajustes" -> AjustesScreen(onBack = { mostrarPantalla.value = "main" }) // <-- NUEVA RUTA
+        "conductor" -> ConductorScreen(onBack = { mostrarPantalla.value = "main" }) // <-- NUEVA RUTA
     }
 }
 
@@ -522,6 +525,7 @@ fun DrawerContent(alCerrarDrawer: () -> Unit) {
         DrawerMenuItem(icon = Icons.Filled.History, text = "Historial") { alCerrarDrawer(); mostrarPantalla.value = "historial" }
         DrawerMenuItem(icon = Icons.Filled.DirectionsBus, text = "Viajes / Disponibles") { alCerrarDrawer(); mostrarPantalla.value = "disponibles" }
         DrawerMenuItem(icon = Icons.Filled.LocationCity, text = "Localidades") { alCerrarDrawer(); mostrarPantalla.value = "localidades" }
+        DrawerMenuItem(icon = Icons.Filled.DriveEta, text = "Modo Conductor") { alCerrarDrawer(); mostrarPantalla.value = "conductor" }
         Spacer(modifier = Modifier.height(16.dp))
         HorizontalDivider(color = Color.LightGray, thickness = 1.dp)
         Row(
