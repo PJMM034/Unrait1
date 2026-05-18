@@ -41,6 +41,7 @@ import com.google.maps.android.compose.MapProperties
 import com.google.maps.android.compose.Marker
 import com.google.maps.android.compose.rememberCameraPositionState
 import com.google.maps.android.compose.rememberMarkerState
+import com.google.maps.android.compose.Polyline
 import com.example.unrait.ui.screens.ride.SeguimientoViajeScreen // <--- ¡AGREGA ESTA LÍNEA!
 // Colores de tu tema
 val NavyBlue = Color(0xFF1B2A47)
@@ -487,15 +488,33 @@ fun DetallesViajeScreen(onBack: () -> Unit) {
     }
 }
 
+enum class PassengerTripState {
+    ESPERANDO_CONDUCTOR,
+    CONDUCTOR_LLEGO,
+    EN_VIAJE,
+    PANIC_MODE
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SeguimientoViajeScreen(onFinalizar: () -> Unit) {
-    // Coordenadas de prueba para la simulación
-    val miPosicion = LatLng(25.044167, -111.639243) // Tú (ITSCC)
-    val posicionConductor = LatLng(25.040000, -111.635000) // Conductor acercándose
+    var tripState by remember { mutableStateOf(PassengerTripState.ESPERANDO_CONDUCTOR) }
+
+    // Ubicaciones simuladas
+    val miPosicion = LatLng(25.2650, -111.7700) // Donde está esperando el estudiante
+    val posicionConductor = LatLng(25.2625, -111.7753) // Conductor acercándose
+    val itscc = LatLng(25.044167, -111.639243) // Destino final
 
     val cameraPositionState = rememberCameraPositionState {
-        position = CameraPosition.fromLatLngZoom(miPosicion, 15f)
+        position = CameraPosition.fromLatLngZoom(miPosicion, 14f)
+    }
+
+    // Simular que el conductor llega después de 5 segundos
+    LaunchedEffect(tripState) {
+        if (tripState == PassengerTripState.ESPERANDO_CONDUCTOR) {
+            kotlinx.coroutines.delay(5000)
+            tripState = PassengerTripState.CONDUCTOR_LLEGO
+        }
     }
 
     Scaffold(
@@ -503,8 +522,20 @@ fun SeguimientoViajeScreen(onFinalizar: () -> Unit) {
             TopAppBar(
                 title = {
                     Column {
-                        Text("En camino...", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                        Text("Llega en aprox. 4 min", color = OrangePrimary, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                        Text(
+                            text = when(tripState) {
+                                PassengerTripState.ESPERANDO_CONDUCTOR -> "Conductor en camino"
+                                PassengerTripState.CONDUCTOR_LLEGO -> "¡Tu conductor llegó!"
+                                PassengerTripState.EN_VIAJE -> "Viaje en curso"
+                                PassengerTripState.PANIC_MODE -> "EMERGENCIA SOS"
+                            },
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 18.sp
+                        )
+                        if (tripState == PassengerTripState.ESPERANDO_CONDUCTOR) {
+                            Text("Llega en aprox. 3 min", color = OrangePrimary, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                        }
                     }
                 },
                 navigationIcon = {
@@ -512,8 +543,22 @@ fun SeguimientoViajeScreen(onFinalizar: () -> Unit) {
                         Icon(Icons.Filled.ArrowBack, contentDescription = "Regresar", tint = Color.White)
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = NavyBlue)
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = if (tripState == PassengerTripState.PANIC_MODE) Color.Red else NavyBlue
+                )
             )
+        },
+        floatingActionButton = {
+            // BOTÓN DE PÁNICO DEL PASAJERO
+            FloatingActionButton(
+                onClick = { tripState = PassengerTripState.PANIC_MODE },
+                containerColor = Color.Red,
+                contentColor = Color.White,
+                shape = CircleShape,
+                modifier = Modifier.size(64.dp)
+            ) {
+                Icon(Icons.Filled.Warning, contentDescription = "Pánico", modifier = Modifier.size(32.dp))
+            }
         }
     ) { paddingValues ->
         Box(
@@ -527,13 +572,19 @@ fun SeguimientoViajeScreen(onFinalizar: () -> Unit) {
                 cameraPositionState = cameraPositionState,
                 properties = MapProperties(isMyLocationEnabled = true)
             ) {
-                // Pin del Conductor
-                Marker(
-                    state = rememberMarkerState(position = posicionConductor),
-                    title = "Mario Gomez",
-                    snippet = "Tu raite",
-                    // En el futuro aquí pondremos un ícono de un carrito
-                )
+                Marker(state = rememberMarkerState(position = miPosicion), title = "Mi Ubicación")
+
+                if (tripState == PassengerTripState.ESPERANDO_CONDUCTOR || tripState == PassengerTripState.CONDUCTOR_LLEGO) {
+                    Marker(state = rememberMarkerState(position = posicionConductor), title = "Conductor (Mario)")
+                    // Ruta del conductor hacia mí
+                    Polyline(points = listOf(posicionConductor, miPosicion), color = NavyBlue, width = 12f)
+                }
+
+                if (tripState == PassengerTripState.EN_VIAJE) {
+                    Marker(state = rememberMarkerState(position = itscc), title = "ITSCC (Destino)")
+                    // Ruta de nosotros hacia el TEC
+                    Polyline(points = listOf(miPosicion, itscc), color = OrangePrimary, width = 12f)
+                }
             }
 
             // --- TARJETA DEL CONDUCTOR (Abajo) ---
@@ -544,91 +595,88 @@ fun SeguimientoViajeScreen(onFinalizar: () -> Unit) {
                 color = Color.White
             ) {
                 Column(modifier = Modifier.padding(24.dp)) {
-                    // Barra de arrastre visual
-                    Box(
-                        modifier = Modifier
-                            .width(40.dp)
-                            .height(4.dp)
-                            .clip(CircleShape)
-                            .background(Color.LightGray)
-                            .align(Alignment.CenterHorizontally)
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
 
-                    // Info del Conductor
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(
-                                modifier = Modifier
-                                    .size(50.dp)
-                                    .clip(CircleShape)
-                                    .background(Color(0xFFE0E5EC)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(Icons.Filled.Person, contentDescription = null, tint = NavyBlue, modifier = Modifier.size(32.dp))
-                            }
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Column {
-                                Text("Mario Gomez", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = NavyBlue)
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text("Toyota Corolla • ", fontSize = 12.sp, color = Color.Gray)
-                                    Text("5432-XYZ", fontSize = 12.sp, color = NavyBlue, fontWeight = FontWeight.Bold)
+                    if (tripState == PassengerTripState.PANIC_MODE) {
+                        Text("⚠️ PROTOCOLO DE SEGURIDAD", color = Color.Red, fontWeight = FontWeight.ExtraBold, fontSize = 18.sp)
+                        Text("Ubicación enviada a contactos de emergencia.", color = Color.DarkGray, modifier = Modifier.padding(vertical = 12.dp))
+                        Button(onClick = { /* Lógica 911 */ }, modifier = Modifier.fillMaxWidth().height(56.dp), colors = ButtonDefaults.buttonColors(containerColor = Color.Black)) {
+                            Text("LLAMAR A SEGURIDAD", color = Color.White, fontWeight = FontWeight.Bold)
+                        }
+                        Spacer(modifier = Modifier.height(12.dp))
+                        OutlinedButton(onClick = { tripState = PassengerTripState.EN_VIAJE }, modifier = Modifier.fillMaxWidth().height(50.dp)) {
+                            Text("Falsa Alarma", color = Color.Gray)
+                        }
+                    } else {
+                        // Info del Conductor
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(modifier = Modifier.size(50.dp).clip(CircleShape).background(Color(0xFFE0E5EC)), contentAlignment = Alignment.Center) {
+                                    Icon(Icons.Filled.Person, contentDescription = null, tint = NavyBlue, modifier = Modifier.size(32.dp))
+                                }
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Column {
+                                    Text("Mario Gomez", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = NavyBlue)
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text("Toyota Corolla • ", fontSize = 12.sp, color = Color.Gray)
+                                        Text("CZ-4521-B", fontSize = 12.sp, color = NavyBlue, fontWeight = FontWeight.Bold)
+                                    }
                                 }
                             }
-                        }
 
-                        // Iconos de contacto
-                        Row {
-                            IconButton(onClick = { /* Abrir chat */ }, modifier = Modifier.background(BackgroundGray, CircleShape).size(40.dp)) {
-                                Icon(Icons.Filled.Chat, contentDescription = "Chat", tint = NavyBlue, modifier = Modifier.size(20.dp))
-                            }
-                            Spacer(modifier = Modifier.width(8.dp))
-                            IconButton(onClick = { /* Llamar */ }, modifier = Modifier.background(OrangePrimary, CircleShape).size(40.dp)) {
-                                Icon(Icons.Filled.Phone, contentDescription = "Llamar", tint = Color.White, modifier = Modifier.size(20.dp))
+                            // Botón de WhatsApp
+                            IconButton(
+                                onClick = { /* Abrir WhatsApp */ },
+                                modifier = Modifier.background(Color(0xFF25D366), CircleShape).size(40.dp)
+                            ) {
+                                Icon(Icons.Filled.Chat, contentDescription = "WhatsApp", tint = Color.White, modifier = Modifier.size(20.dp))
                             }
                         }
-                    }
 
-                    Spacer(modifier = Modifier.height(24.dp))
+                        Spacer(modifier = Modifier.height(24.dp))
 
-                    // Código de seguridad (Excelente práctica para carpooling)
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(Color(0xFFFFF3E0), RoundedCornerShape(8.dp))
-                            .padding(12.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text("Código de seguridad:", color = NavyBlue, fontSize = 14.sp)
-                        Text("8421", fontWeight = FontWeight.ExtraBold, fontSize = 20.sp, color = OrangePrimary, letterSpacing = 2.sp)
-                    }
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    // Botón de pánico / Compartir viaje
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        OutlinedButton(
-                            onClick = onFinalizar, // Simula cancelar
-                            modifier = Modifier.weight(1f).height(50.dp),
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.Red),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, Color.Red)
+                        // Código de seguridad (Clave para carpooling seguro)
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(Color(0xFFFFF3E0), RoundedCornerShape(8.dp))
+                                .padding(12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text("Cancelar")
+                            Text("Código de abordaje:", color = NavyBlue, fontSize = 14.sp)
+                            Text("8421", fontWeight = FontWeight.ExtraBold, fontSize = 20.sp, color = OrangePrimary, letterSpacing = 2.sp)
                         }
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Button(
-                            onClick = { /* Compartir link */ },
-                            modifier = Modifier.weight(1f).height(50.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = NavyBlue)
-                        ) {
-                            Icon(Icons.Filled.Share, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Compartir")
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        // Lógica del Botón Principal
+                        when (tripState) {
+                            PassengerTripState.ESPERANDO_CONDUCTOR -> {
+                                OutlinedButton(
+                                    onClick = onFinalizar,
+                                    modifier = Modifier.fillMaxWidth().height(50.dp),
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.Red)
+                                ) { Text("Cancelar Solicitud") }
+                            }
+                            PassengerTripState.CONDUCTOR_LLEGO -> {
+                                Button(
+                                    onClick = { tripState = PassengerTripState.EN_VIAJE },
+                                    modifier = Modifier.fillMaxWidth().height(56.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4CAF50))
+                                ) { Text("YA ESTOY A BORDO", fontWeight = FontWeight.Bold, color = Color.White) }
+                            }
+                            PassengerTripState.EN_VIAJE -> {
+                                Button(
+                                    onClick = { /* El conductor finaliza el viaje, no el pasajero, pero simulamos salida aquí */ onFinalizar() },
+                                    modifier = Modifier.fillMaxWidth().height(56.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = NavyBlue)
+                                ) { Text("Compartir mi ruta en vivo", fontWeight = FontWeight.Bold, color = Color.White) }
+                            }
+                            else -> {}
                         }
                     }
                 }
