@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "449019947971",
+    "project_id": "unrait-4d7f6",
+    "storage_bucket": "unrait-4d7f6.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:449019947971:android:acc5703e6022df0779ab76",
+        "android_client_info": {
+          "package_name": "com.example.unrait"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyArNZmxbYRNzTDpCzkhHuP0SmzIbBw5eqU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
