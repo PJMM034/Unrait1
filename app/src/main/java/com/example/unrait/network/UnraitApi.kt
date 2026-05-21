@@ -7,12 +7,17 @@ import retrofit2.http.POST
 
 // 1. El paquete de datos que vamos a enviar al servidor
 data class RegistroRequest(
+    val firebase_uid: String,
     val num_control: String,
     val nombre: String,
-    val password: String,
     val es_conductor: Boolean,
     val placas: String?,
     val modelo_vehiculo: String?
+)
+
+// 2. El paquete para LOGIN (solo necesitamos mandar el UID)
+data class LoginRequest(
+    val firebase_uid: String
 )
 
 // 2. La respuesta que esperamos recibir del servidor
@@ -22,10 +27,13 @@ data class AuthResponse(
     val token: String? = null
 )
 
-// 3. Las "puertas" a las que tocaremos en Node.js
+// Agregamos la ruta de login a la interfaz
 interface UnraitApiService {
     @POST("/api/auth/registro")
     suspend fun registrarUsuario(@Body request: RegistroRequest): AuthResponse
+
+    @POST("/api/auth/login")
+    suspend fun loginUsuario(@Body request: LoginRequest): AuthResponse
 }
 
 // 4. El motor de conexión (¡Aquí va tu IP!)
