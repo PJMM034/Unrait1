@@ -1,6 +1,16 @@
 package com.example.unrait.ui.screens.ride
 
-import androidx.compose.animation.AnimatedVisibility
+import android.Manifest
+import android.annotation.SuppressLint
+import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.location.Geocoder
+import android.media.RingtoneManager
+import android.net.Uri
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -17,67 +27,131 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import kotlinx.coroutines.delay
+import androidx.core.content.ContextCompat
 import kotlinx.coroutines.launch
+import java.util.Locale
 
-// Imports de Google Maps
+import com.google.android.gms.location.LocationServices
 import com.google.android.gms.maps.CameraUpdateFactory
 import com.google.android.gms.maps.model.CameraPosition
 import com.google.android.gms.maps.model.LatLng
 import com.google.maps.android.compose.GoogleMap
 import com.google.maps.android.compose.MapProperties
 import com.google.maps.android.compose.Marker
-import com.google.maps.android.compose.Polyline
 import com.google.maps.android.compose.rememberCameraPositionState
 import com.google.maps.android.compose.rememberMarkerState
 
+import com.example.unrait.network.AceptarPeticionMapaRequest
+import com.example.unrait.network.AceptarSolicitudRequest
+import com.example.unrait.network.PeticionPasajero
+import com.google.firebase.auth.FirebaseAuth
+import com.example.unrait.network.UnraitApi
+import com.example.unrait.network.PublicarViajeRequest
+import com.example.unrait.network.FinalizarViajeRequest
 
-enum class DriverState {
-    OFFLINE,
-    ONLINE_IDLE,
-    EN_CAMINO_A_RECOGER,
-    ON_TRIP,
-    TRIP_FINISHED,
-    PANIC_MODE
-}
+enum class DriverState { OFFLINE, ONLINE_IDLE, EN_CAMINO_A_RECOGER, ON_TRIP, TRIP_FINISHED, PANIC_MODE }
 
 data class PassengerReq(
     val id: String,
     val name: String,
+    val telefono: String,
     val location: LatLng,
     val requestPoint: String,
-    val phone: String = "6130000000",
     var meetingPoint: String = "",
     var isPickedUp: Boolean = false
 )
 
+fun reproducirSonidoNotificacion(context: Context) {
+    try {
+        val notification = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+        val r = RingtoneManager.getRingtone(context, notification)
+        r.play()
+    } catch (e: Exception) {
+        e.printStackTrace()
+    }
+}
+
+fun abrirWhatsApp(context: Context, telefono: String) {
+    if (telefono.isEmpty()) {
+        Toast.makeText(context, "El usuario no registró su teléfono", Toast.LENGTH_SHORT).show()
+        return
+    }
+    try {
+        val numero = if (telefono.startsWith("+")) telefono else "+52$telefono"
+        val intent = Intent(Intent.ACTION_VIEW)
+        intent.data = Uri.parse("https://api.whatsapp.com/send?phone=$numero")
+        context.startActivity(intent)
+    } catch (e: Exception) {
+        Toast.makeText(context, "WhatsApp no está instalado", Toast.LENGTH_SHORT).show()
+    }
+}
+
+@SuppressLint("MissingPermission")
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ConductorScreen(onBack: () -> Unit) {
-    val scope = rememberCoroutineScope()
     var driverState by remember { mutableStateOf(DriverState.OFFLINE) }
-
-    val activePassengers = remember { mutableStateListOf<PassengerReq>() }
-    val incomingRequests = remember { mutableStateListOf<PassengerReq>() }
-    var currentPassengerIndex by remember { mutableIntStateOf(0) }
-
-    var showPublishRideSheet by remember { mutableStateOf(false) }
     var showRequestsDialog by remember { mutableStateOf(false) }
+    var showPublishRideSheet by remember { mutableStateOf(false) }
 
-    // Ubicaciones
-    val driverLoc = LatLng(25.2625, -111.7753) // Ejemplo: Cd. Insurgentes
-    val user1Loc = LatLng(25.2650, -111.7700)
-    val itscc = LatLng(25.044167, -111.639243)
+    var peticionesPasajerosReal by remember { mutableStateOf<List<PeticionPasajero>>(emptyList()) }
+    var peticionesCampanaAnteriores by remember { mutableIntStateOf(0) }
+    var peticionesMapaAnteriores by remember { mutableIntStateOf(0) }
 
-    // Estilos de texto
+    val incomingRequests = remember { mutableStateListOf<PassengerReq>() }
+    val activePassengers = remember { mutableStateListOf<PassengerReq>() }
+
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val fusedLocationClient = remember { LocationServices.getFusedLocationProviderClient(context) }
+
+    var driverLoc by remember { mutableStateOf(LatLng(25.044167, -111.639243)) }
+    var nombreLocalidad by remember { mutableStateOf("Buscando tu ubicación...") }
+
+    val cameraPositionState = rememberCameraPositionState {
+        position = CameraPosition.fromLatLngZoom(driverLoc, 14f)
+    }
+
+    var hasLocationPermission by remember {
+        mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED)
+    }
+    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { perms ->
+        hasLocationPermission = perms[Manifest.permission.ACCESS_FINE_LOCATION] ?: hasLocationPermission
+    }
+
+    LaunchedEffect(Unit) {
+        if (!hasLocationPermission) {
+            permissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
+        } else {
+            fusedLocationClient.lastLocation.addOnSuccessListener { location ->
+                if (location != null) {
+                    driverLoc = LatLng(location.latitude, location.longitude)
+                    scope.launch {
+                        cameraPositionState.animate(CameraUpdateFactory.newLatLngZoom(driverLoc, 15f))
+                    }
+                    try {
+                        val geocoder = Geocoder(context, Locale.getDefault())
+                        val addresses = geocoder.getFromLocation(location.latitude, location.longitude, 1)
+                        if (!addresses.isNullOrEmpty()) {
+                            nombreLocalidad = addresses[0].locality ?: addresses[0].subAdminArea ?: "Ubicación Actual"
+                        } else {
+                            nombreLocalidad = "Ubicación detectada por GPS"
+                        }
+                    } catch (e: Exception) {
+                        nombreLocalidad = "Ubicación detectada por GPS"
+                    }
+                }
+            }
+        }
+    }
+
     val textStyleDark = TextStyle(color = NavyBlue, fontSize = 16.sp)
     val textFieldColors = OutlinedTextFieldDefaults.colors(
         focusedBorderColor = OrangePrimary,
@@ -86,14 +160,47 @@ fun ConductorScreen(onBack: () -> Unit) {
         unfocusedBorderColor = Color.LightGray
     )
 
-    val cameraPositionState = rememberCameraPositionState {
-        position = CameraPosition.fromLatLngZoom(driverLoc, 14f)
-    }
-
     LaunchedEffect(driverState) {
-        if (driverState == DriverState.ONLINE_IDLE && incomingRequests.isEmpty() && activePassengers.isEmpty()) {
-            delay(2000)
-            incomingRequests.add(PassengerReq("1", "Danna Cota", user1Loc, "Cerca de abarrotes El Molino"))
+        val currentUser = FirebaseAuth.getInstance().currentUser
+        if (driverState == DriverState.ONLINE_IDLE && currentUser != null) {
+            while (true) {
+                try {
+                    val resMapa = UnraitApi.retrofitService.getPeticionesActivas()
+                    if (resMapa.success) {
+                        if (resMapa.peticiones.size > peticionesMapaAnteriores) {
+                            reproducirSonidoNotificacion(context)
+                        }
+                        peticionesMapaAnteriores = resMapa.peticiones.size
+                        peticionesPasajerosReal = resMapa.peticiones
+                    }
+
+                    if (!showRequestsDialog) {
+                        val resCampana = UnraitApi.retrofitService.getMisSolicitudes(currentUser.uid)
+                        if (resCampana.success) {
+                            if (resCampana.solicitudes.size > peticionesCampanaAnteriores) {
+                                reproducirSonidoNotificacion(context)
+                            }
+                            peticionesCampanaAnteriores = resCampana.solicitudes.size
+
+                            incomingRequests.clear()
+                            resCampana.solicitudes.forEach { sol ->
+                                incomingRequests.add(
+                                    PassengerReq(
+                                        id = sol.id_solicitud.toString(),
+                                        name = sol.pasajero,
+                                        telefono = sol.telefono_pasajero ?: "",
+                                        location = LatLng(driverLoc.latitude + 0.001, driverLoc.longitude - 0.001),
+                                        requestPoint = sol.destino
+                                    )
+                                )
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+                kotlinx.coroutines.delay(4000)
+            }
         }
     }
 
@@ -115,9 +222,7 @@ fun ConductorScreen(onBack: () -> Unit) {
                         color = Color.White
                     )
                 },
-                navigationIcon = {
-                    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Atrás", tint = Color.White) }
-                },
+                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Atrás", tint = Color.White) } },
                 actions = {
                     if (driverState == DriverState.ONLINE_IDLE) {
                         Box(contentAlignment = Alignment.TopEnd) {
@@ -154,25 +259,25 @@ fun ConductorScreen(onBack: () -> Unit) {
             GoogleMap(
                 modifier = Modifier.fillMaxSize(),
                 cameraPositionState = cameraPositionState,
-                properties = MapProperties(isMyLocationEnabled = true)
+                properties = MapProperties(isMyLocationEnabled = hasLocationPermission)
             ) {
                 if (driverState != DriverState.OFFLINE) {
                     Marker(state = rememberMarkerState(position = driverLoc), title = "Mi Ubicación")
 
-                    if (driverState == DriverState.ON_TRIP || driverState == DriverState.EN_CAMINO_A_RECOGER) {
-                        activePassengers.forEach { p ->
-                            if (!p.isPickedUp) {
-                                Marker(state = rememberMarkerState(position = p.location), title = "Recoger a ${p.name}")
-                                // Dibuja la ruta hacia el pasajero
-                                Polyline(points = listOf(driverLoc, p.location), color = NavyBlue, width = 12f)
-                            }
-                        }
-                        Marker(state = rememberMarkerState(position = itscc), title = "Destino Final (ITSCC)")
+                    peticionesPasajerosReal.forEachIndexed { index, peticion ->
+                        val dispersiones = listOf(
+                            Pair(0.002, 0.003), Pair(-0.003, 0.001), Pair(0.001, -0.004), Pair(-0.002, -0.002), Pair(0.004, -0.001)
+                        )
+                        val offset = dispersiones[index % dispersiones.size]
+                        val latDesplazada = driverLoc.latitude + offset.first
+                        val lngDesplazada = driverLoc.longitude + offset.second
+                        val posEstudiante = LatLng(latDesplazada, lngDesplazada)
 
-                        // Dibuja la ruta hacia el ITSCC
-                        if (driverState == DriverState.ON_TRIP) {
-                            Polyline(points = listOf(driverLoc, itscc), color = OrangePrimary, width = 12f)
-                        }
+                        Marker(
+                            state = rememberMarkerState(position = posEstudiante),
+                            title = peticion.nombre_pasajero,
+                            snippet = "Va a: ${peticion.destino}",
+                        )
                     }
                 }
             }
@@ -193,46 +298,103 @@ fun ConductorScreen(onBack: () -> Unit) {
                                 modifier = Modifier.fillMaxWidth().height(56.dp),
                                 colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary)
                             ) { Text("CONECTARSE Y OFRECER VIAJES", fontWeight = FontWeight.Bold, color = Color.White) }
+                            Spacer(modifier = Modifier.height(12.dp))
+                            OutlinedButton(onClick = { showPublishRideSheet = true }, modifier = Modifier.fillMaxWidth().height(56.dp)) {
+                                Text("Publicar Viaje Programado")
+                            }
                         }
 
                         DriverState.ONLINE_IDLE -> {
-                            Text("Esperando pasajeros o publica un viaje.", color = Color.Gray, modifier = Modifier.padding(bottom = 16.dp))
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                 Button(
                                     onClick = { showPublishRideSheet = true },
-                                    modifier = Modifier.weight(1f).height(56.dp),
+                                    modifier = Modifier.weight(1f).height(50.dp),
                                     colors = ButtonDefaults.buttonColors(containerColor = NavyBlue)
-                                ) { Text("Publicar Viaje", color = Color.White) }
+                                ) { Text("Publicar", color = Color.White) }
 
                                 Button(
                                     onClick = { driverState = DriverState.OFFLINE },
-                                    modifier = Modifier.weight(1f).height(56.dp),
+                                    modifier = Modifier.weight(1f).height(50.dp),
                                     colors = ButtonDefaults.buttonColors(containerColor = Color.LightGray, contentColor = Color.Black)
-                                ) { Text("Desconectarse") }
+                                ) { Text("Desconectar") }
+                            }
+
+                            Spacer(modifier = Modifier.height(16.dp))
+
+                            Text("Pasajeros buscando viaje ahora:", fontWeight = FontWeight.Bold, color = NavyBlue, modifier = Modifier.align(Alignment.Start))
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            if (peticionesPasajerosReal.isEmpty()) {
+                                Text("Nadie buscando en el mapa por el momento.", color = Color.Gray, fontSize = 14.sp)
+                            } else {
+                                LazyColumn(modifier = Modifier.heightIn(max = 200.dp)) {
+                                    items(peticionesPasajerosReal) { peticion ->
+                                        Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFFF5F6F8))) {
+                                            Row(modifier = Modifier.padding(12.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                                                Column(modifier = Modifier.weight(1f)) {
+                                                    Text(peticion.nombre_pasajero, fontWeight = FontWeight.Bold, color = NavyBlue)
+                                                    Text("Hacia: ${peticion.destino}", fontSize = 12.sp, color = Color.Gray)
+                                                }
+                                                Button(
+                                                    onClick = {
+                                                        val currentUser = FirebaseAuth.getInstance().currentUser
+                                                        if (currentUser != null) {
+                                                            scope.launch {
+                                                                try {
+                                                                    // --- SOLUCIÓN: ENVIAR TU UID AL MAPA ---
+                                                                    val req = AceptarPeticionMapaRequest(peticion.id_peticion, currentUser.uid)
+                                                                    val res = UnraitApi.retrofitService.aceptarPeticionMapa(req)
+                                                                    if (res.success) {
+                                                                        activePassengers.add(PassengerReq(
+                                                                            id = peticion.id_peticion.toString(),
+                                                                            name = peticion.nombre_pasajero,
+                                                                            telefono = peticion.telefono_pasajero ?: "",
+                                                                            location = driverLoc,
+                                                                            requestPoint = peticion.destino,
+                                                                            meetingPoint = peticion.punto_encuentro
+                                                                        ))
+                                                                        driverState = DriverState.EN_CAMINO_A_RECOGER
+                                                                        Toast.makeText(context, "¡Vamos por ${peticion.nombre_pasajero}!", Toast.LENGTH_SHORT).show()
+                                                                    }
+                                                                } catch (e: Exception) {
+                                                                    Toast.makeText(context, "Error al aceptar", Toast.LENGTH_SHORT).show()
+                                                                }
+                                                            }
+                                                        }
+                                                    },
+                                                    colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary),
+                                                    modifier = Modifier.height(36.dp)
+                                                ) {
+                                                    Text("Ir por él", fontSize = 12.sp)
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
 
                         DriverState.EN_CAMINO_A_RECOGER -> {
-                            val target = if (currentPassengerIndex < activePassengers.size) activePassengers[currentPassengerIndex] else null
+                            val target = activePassengers.lastOrNull()
 
                             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)) {
                                 Icon(Icons.Filled.DirectionsCar, null, tint = NavyBlue, modifier = Modifier.size(32.dp))
                                 Spacer(modifier = Modifier.width(12.dp))
-                                Column {
+                                Column(modifier = Modifier.weight(1f)) {
                                     Text("Punto de encuentro:", color = Color.Gray, fontSize = 12.sp)
-                                    Text(target?.meetingPoint ?: "Desconocido", fontWeight = FontWeight.Bold, color = NavyBlue, fontSize = 16.sp)
+                                    Text(target?.meetingPoint?.ifEmpty { "Ubicación compartida GPS" } ?: "Desconocido", fontWeight = FontWeight.Bold, color = NavyBlue, fontSize = 16.sp)
+                                    Text("Pasajero: ${target?.name}", color = OrangePrimary, fontWeight = FontWeight.Medium)
                                 }
-                                Spacer(modifier = Modifier.weight(1f))
                                 IconButton(
-                                    onClick = { /* TODO: Intent a WhatsApp */ },
-                                    modifier = Modifier.background(Color(0xFF25D366), CircleShape).size(40.dp)
-                                ) { Icon(Icons.Filled.Chat, "WhatsApp", tint = Color.White, modifier = Modifier.size(20.dp)) }
+                                    onClick = { if (target != null) abrirWhatsApp(context, target.telefono) },
+                                    modifier = Modifier.background(Color(0xFF25D366), CircleShape).size(48.dp)
+                                ) { Icon(Icons.Filled.Phone, "WhatsApp", tint = Color.White, modifier = Modifier.size(24.dp)) }
                             }
 
                             Button(
                                 onClick = {
                                     if (target != null) {
-                                        activePassengers[currentPassengerIndex].isPickedUp = true
+                                        activePassengers.last().isPickedUp = true
                                         driverState = DriverState.ON_TRIP
                                     }
                                 },
@@ -242,12 +404,14 @@ fun ConductorScreen(onBack: () -> Unit) {
                         }
 
                         DriverState.ON_TRIP -> {
+                            val target = activePassengers.lastOrNull()
+
                             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)) {
                                 Icon(Icons.Filled.Navigation, null, tint = OrangePrimary, modifier = Modifier.size(32.dp))
                                 Spacer(modifier = Modifier.width(12.dp))
                                 Column {
                                     Text("Próximo destino:", color = Color.Gray, fontSize = 12.sp)
-                                    Text("ITSCC (Destino Final)", fontWeight = FontWeight.Bold, color = NavyBlue, fontSize = 18.sp)
+                                    Text(target?.requestPoint ?: "Destino Final", fontWeight = FontWeight.Bold, color = NavyBlue, fontSize = 18.sp)
                                 }
                             }
 
@@ -278,105 +442,150 @@ fun ConductorScreen(onBack: () -> Unit) {
                             CalificacionFinal(
                                 onFinalizar = {
                                     activePassengers.clear()
-                                    currentPassengerIndex = 0
                                     driverState = DriverState.ONLINE_IDLE
                                 }
                             )
                         }
                     }
                 }
-            }
 
-            if (showPublishRideSheet) {
-                ModalBottomSheet(onDismissRequest = { showPublishRideSheet = false }, containerColor = Color.White) {
-                    var localidadAuto by remember { mutableStateOf("Ciudad Insurgentes (Ubicación Actual)") }
-                    var puntoEncuentro by remember { mutableStateOf("") }
-                    var destino by remember { mutableStateOf("ITSCC Tecnológico") }
-                    var tiempo by remember { mutableStateOf("Saliendo en 15 min") }
+                if (showPublishRideSheet) {
+                    ModalBottomSheet(onDismissRequest = { showPublishRideSheet = false }, containerColor = Color.White) {
+                        var localidadAuto by remember { mutableStateOf(nombreLocalidad) }
+                        var puntoEncuentro by remember { mutableStateOf("") }
+                        var destino by remember { mutableStateOf("") }
+                        var tiempo by remember { mutableStateOf("") }
 
-                    Column(modifier = Modifier.padding(24.dp).fillMaxWidth()) {
-                        Text("Publicar Nuevo Viaje", fontWeight = FontWeight.Bold, fontSize = 20.sp, color = NavyBlue)
-                        Spacer(modifier = Modifier.height(16.dp))
+                        Column(modifier = Modifier.padding(24.dp).fillMaxWidth()) {
+                            Text("Publicar Nuevo Viaje", fontWeight = FontWeight.Bold, fontSize = 20.sp, color = NavyBlue)
+                            Spacer(modifier = Modifier.height(16.dp))
 
-                        OutlinedTextField(value = localidadAuto, onValueChange = {}, label = { Text("Localidad (Detectada)") }, modifier = Modifier.fillMaxWidth(), readOnly = true, textStyle = textStyleDark, colors = textFieldColors)
-                        Spacer(modifier = Modifier.height(8.dp))
-                        OutlinedTextField(value = puntoEncuentro, onValueChange = { puntoEncuentro = it }, label = { Text("Especificar punto de encuentro (Ej. Parque)") }, modifier = Modifier.fillMaxWidth(), textStyle = textStyleDark, colors = textFieldColors)
-                        Spacer(modifier = Modifier.height(8.dp))
-                        OutlinedTextField(value = destino, onValueChange = { destino = it }, label = { Text("Destino") }, modifier = Modifier.fillMaxWidth(), textStyle = textStyleDark, colors = textFieldColors)
-                        Spacer(modifier = Modifier.height(8.dp))
-                        OutlinedTextField(value = tiempo, onValueChange = { tiempo = it }, label = { Text("Tiempo estimado de salida") }, modifier = Modifier.fillMaxWidth(), textStyle = textStyleDark, colors = textFieldColors)
+                            OutlinedTextField(value = localidadAuto, onValueChange = { localidadAuto = it }, label = { Text("Origen (Detectado)") }, modifier = Modifier.fillMaxWidth(), textStyle = textStyleDark, colors = textFieldColors)
+                            Spacer(modifier = Modifier.height(8.dp))
+                            OutlinedTextField(value = puntoEncuentro, onValueChange = { puntoEncuentro = it }, label = { Text("Punto de encuentro (Ej. Parque, Parada)") }, modifier = Modifier.fillMaxWidth(), textStyle = textStyleDark, colors = textFieldColors)
+                            Spacer(modifier = Modifier.height(8.dp))
+                            OutlinedTextField(value = destino, onValueChange = { destino = it }, label = { Text("Destino Final") }, modifier = Modifier.fillMaxWidth(), textStyle = textStyleDark, colors = textFieldColors)
+                            Spacer(modifier = Modifier.height(8.dp))
+                            OutlinedTextField(value = tiempo, onValueChange = { tiempo = it }, label = { Text("Tiempo estimado de salida (Ej. 15 min)") }, modifier = Modifier.fillMaxWidth(), textStyle = textStyleDark, colors = textFieldColors)
 
-                        Spacer(modifier = Modifier.height(24.dp))
-                        Button(
-                            onClick = {
-                                showPublishRideSheet = false
-                                if(activePassengers.isNotEmpty()) driverState = DriverState.EN_CAMINO_A_RECOGER
-                            },
-                            modifier = Modifier.fillMaxWidth().height(56.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary)
-                        ) { Text("PUBLICAR VIAJE", fontWeight = FontWeight.Bold, color = Color.White) }
-                        Spacer(modifier = Modifier.height(32.dp))
-                    }
-                }
-            }
+                            Spacer(modifier = Modifier.height(24.dp))
+                            Button(
+                                onClick = {
+                                    val currentUser = FirebaseAuth.getInstance().currentUser
+                                    if (currentUser == null) {
+                                        Toast.makeText(context, "Error: No has iniciado sesión", Toast.LENGTH_SHORT).show()
+                                        return@Button
+                                    }
+                                    if (destino.isEmpty() || tiempo.isEmpty() || puntoEncuentro.isEmpty()) {
+                                        Toast.makeText(context, "Por favor llena todos los campos", Toast.LENGTH_SHORT).show()
+                                        return@Button
+                                    }
 
-            if (showRequestsDialog) {
-                AlertDialog(
-                    onDismissRequest = { showRequestsDialog = false },
-                    title = { Text("Peticiones de Usuarios", color = NavyBlue, fontWeight = FontWeight.Bold) },
-                    text = {
-                        if (incomingRequests.isEmpty()) {
-                            Text("No hay peticiones nuevas.", color = Color.Gray)
-                        } else {
-                            LazyColumn {
-                                items(incomingRequests) { req ->
-                                    var meetingPt by remember { mutableStateOf("") }
-
-                                    Card(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFFF5F6F8))) {
-                                        Column(modifier = Modifier.padding(12.dp)) {
-                                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                                Text(req.name, fontWeight = FontWeight.Bold, color = NavyBlue, fontSize = 16.sp)
-                                                Spacer(modifier = Modifier.weight(1f))
-                                                IconButton(
-                                                    onClick = { /* TODO: Intent WhatsApp */ },
-                                                    modifier = Modifier.size(32.dp).background(Color(0xFF25D366), CircleShape)
-                                                ) { Icon(Icons.Filled.Chat, null, tint = Color.White, modifier = Modifier.size(16.dp)) }
-                                            }
-                                            Text("Ubicación: ${req.requestPoint}", fontSize = 12.sp, color = Color.DarkGray)
-
-                                            Spacer(modifier = Modifier.height(8.dp))
-                                            OutlinedTextField(
-                                                value = meetingPt,
-                                                onValueChange = { meetingPt = it },
-                                                label = { Text("Indica dónde lo recogerás") },
-                                                singleLine = true,
-                                                modifier = Modifier.fillMaxWidth(),
-                                                textStyle = textStyleDark,
-                                                colors = textFieldColors
+                                    scope.launch {
+                                        try {
+                                            val request = PublicarViajeRequest(
+                                                firebase_uid = currentUser.uid,
+                                                origen = localidadAuto,
+                                                destino = destino,
+                                                punto_encuentro = puntoEncuentro,
+                                                hora_salida = tiempo,
+                                                cupos_disponibles = 3
                                             )
 
-                                            Row(modifier = Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.End) {
-                                                TextButton(onClick = { incomingRequests.remove(req) }) { Text("Rechazar", color = Color.Gray) }
-                                                Button(
-                                                    onClick = {
-                                                        req.meetingPoint = meetingPt.ifEmpty { req.requestPoint }
-                                                        activePassengers.add(req)
-                                                        incomingRequests.remove(req)
-                                                        showRequestsDialog = false
-                                                        driverState = DriverState.EN_CAMINO_A_RECOGER
-                                                    },
-                                                    colors = ButtonDefaults.buttonColors(containerColor = NavyBlue)
-                                                ) { Text("Aceptar", color = Color.White) }
+                                            val response = UnraitApi.retrofitService.publicarViaje(request)
+
+                                            if (response.success) {
+                                                Toast.makeText(context, "¡Viaje publicado con éxito!", Toast.LENGTH_SHORT).show()
+                                                showPublishRideSheet = false
+                                                driverState = DriverState.ONLINE_IDLE
+                                            } else {
+                                                Toast.makeText(context, response.message, Toast.LENGTH_LONG).show()
+                                            }
+                                        } catch (e: Exception) {
+                                            Toast.makeText(context, "Error al publicar: ${e.message}", Toast.LENGTH_LONG).show()
+                                        }
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth().height(56.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary)
+                            ) {
+                                Text("PUBLICAR VIAJE", fontWeight = FontWeight.Bold, color = Color.White)
+                            }
+                            Spacer(modifier = Modifier.height(32.dp))
+                        }
+                    }
+                }
+
+                if (showRequestsDialog) {
+                    AlertDialog(
+                        onDismissRequest = { showRequestsDialog = false },
+                        title = { Text("Peticiones Directas a ti", color = NavyBlue, fontWeight = FontWeight.Bold) },
+                        text = {
+                            if (incomingRequests.isEmpty()) {
+                                Text("No hay peticiones en tu campana.", color = Color.Gray)
+                            } else {
+                                LazyColumn {
+                                    items(incomingRequests) { req ->
+                                        var meetingPt by remember { mutableStateOf("") }
+
+                                        Card(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFFF5F6F8))) {
+                                            Column(modifier = Modifier.padding(12.dp)) {
+                                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                                    Text(req.name, fontWeight = FontWeight.Bold, color = NavyBlue, fontSize = 16.sp)
+                                                    Spacer(modifier = Modifier.weight(1f))
+                                                    IconButton(
+                                                        onClick = { abrirWhatsApp(context, req.telefono) },
+                                                        modifier = Modifier.size(32.dp).background(Color(0xFF25D366), CircleShape)
+                                                    ) { Icon(Icons.Filled.Phone, null, tint = Color.White, modifier = Modifier.size(16.dp)) }
+                                                }
+                                                Text("Destino: ${req.requestPoint}", fontSize = 12.sp, color = Color.DarkGray)
+
+                                                Spacer(modifier = Modifier.height(8.dp))
+                                                OutlinedTextField(
+                                                    value = meetingPt,
+                                                    onValueChange = { meetingPt = it },
+                                                    label = { Text("Indica dónde lo recogerás") },
+                                                    singleLine = true,
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    textStyle = textStyleDark,
+                                                    colors = textFieldColors
+                                                )
+
+                                                Row(modifier = Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.End) {
+                                                    TextButton(onClick = { incomingRequests.remove(req) }) { Text("Rechazar", color = Color.Gray) }
+                                                    Button(
+                                                        onClick = {
+                                                            scope.launch {
+                                                                try {
+                                                                    val reqAccept = AceptarSolicitudRequest(req.id.toInt())
+                                                                    val res = UnraitApi.retrofitService.aceptarSolicitud(reqAccept)
+
+                                                                    if (res.success) {
+                                                                        req.meetingPoint = meetingPt.ifEmpty { req.requestPoint }
+                                                                        activePassengers.add(req)
+                                                                        incomingRequests.remove(req)
+                                                                        showRequestsDialog = false
+                                                                        driverState = DriverState.EN_CAMINO_A_RECOGER
+                                                                        Toast.makeText(context, "Pasajero Aceptado", Toast.LENGTH_SHORT).show()
+                                                                    }
+                                                                } catch (e: Exception) {
+                                                                    Toast.makeText(context, "Error al aceptar", Toast.LENGTH_SHORT).show()
+                                                                }
+                                                            }
+                                                        },
+                                                        colors = ButtonDefaults.buttonColors(containerColor = NavyBlue)
+                                                    ) { Text("Aceptar", color = Color.White) }
+                                                }
                                             }
                                         }
                                     }
                                 }
                             }
-                        }
-                    },
-                    confirmButton = { TextButton(onClick = { showRequestsDialog = false }) { Text("Cerrar") } },
-                    containerColor = Color.White
-                )
+                        },
+                        confirmButton = { TextButton(onClick = { showRequestsDialog = false }) { Text("Cerrar") } },
+                        containerColor = Color.White
+                    )
+                }
             }
         }
     }
@@ -386,6 +595,8 @@ fun ConductorScreen(onBack: () -> Unit) {
 fun CalificacionFinal(onFinalizar: () -> Unit) {
     var rating by remember { mutableIntStateOf(0) }
     var comentarios by remember { mutableStateOf("") }
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
 
     val textStyleDark = TextStyle(color = NavyBlue, fontSize = 16.sp)
     val textFieldColors = OutlinedTextFieldDefaults.colors(
@@ -407,7 +618,7 @@ fun CalificacionFinal(onFinalizar: () -> Unit) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Filled.VolunteerActivism, null, tint = Color(0xFF2E7D32))
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Donativo Recibido", color = Color(0xFF2E7D32), fontWeight = FontWeight.Bold)
+                    Text("Donativo Sugerido Recibido", color = Color(0xFF2E7D32), fontWeight = FontWeight.Bold)
                 }
                 Text("$15 MXN", color = Color(0xFF2E7D32), fontWeight = FontWeight.ExtraBold, fontSize = 18.sp)
             }
@@ -418,11 +629,14 @@ fun CalificacionFinal(onFinalizar: () -> Unit) {
 
         Row(modifier = Modifier.padding(vertical = 12.dp), horizontalArrangement = Arrangement.Center) {
             for (i in 1..5) {
-                Text(
-                    text = "👑",
-                    fontSize = 40.sp,
-                    modifier = Modifier.clickable { rating = i }.padding(horizontal = 4.dp),
-                    color = if (i <= rating) Color.Unspecified else Color.Gray.copy(alpha = 0.3f)
+                Icon(
+                    imageVector = Icons.Filled.Star,
+                    contentDescription = "Calificación",
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clickable { rating = i }
+                        .padding(horizontal = 4.dp),
+                    tint = if (i <= rating) Color(0xFFFFC107) else Color.Gray.copy(alpha = 0.3f)
                 )
             }
         }
@@ -438,8 +652,19 @@ fun CalificacionFinal(onFinalizar: () -> Unit) {
         )
 
         Spacer(modifier = Modifier.height(24.dp))
+
         Button(
-            onClick = onFinalizar,
+            onClick = {
+                scope.launch {
+                    try {
+                        val currentUser = FirebaseAuth.getInstance().currentUser
+                        if (currentUser != null) {
+                            UnraitApi.retrofitService.finalizarViajeConductor(FinalizarViajeRequest(currentUser.uid, "0"))
+                        }
+                    } catch (e: Exception) { }
+                    onFinalizar()
+                }
+            },
             modifier = Modifier.fillMaxWidth().height(56.dp),
             colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary)
         ) { Text("ENVIAR Y VOLVER AL INICIO", fontWeight = FontWeight.Bold, color = Color.White) }

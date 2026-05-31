@@ -1,7 +1,12 @@
 package com.example.unrait.ui.screens.auth
 
+import android.Manifest
 import android.app.Activity
+import android.content.pm.PackageManager
+import android.graphics.Bitmap
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -19,18 +24,21 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
+import com.example.unrait.network.LoginRequest
+import com.example.unrait.network.RegistroRequest
+import com.example.unrait.network.UnraitApi
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.OAuthProvider
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import com.example.unrait.network.UnraitApi
-import com.example.unrait.network.LoginRequest
-import com.example.unrait.network.RegistroRequest
-import androidx.compose.ui.text.style.TextAlign
 
 val NavyBlue = Color(0xFF1B2A47)
 val OrangePrimary = Color(0xFFE66A25)
@@ -47,7 +55,7 @@ val DiagonalShape = GenericShape { size, _ ->
 @Composable
 fun LoginScreen(
     onNavigateToHome: () -> Unit,
-    onNavigateToRegistro: (String, String, String) -> Unit // Recibe UID, Nombre y Control de Microsoft
+    onNavigateToRegistro: (String, String, String) -> Unit
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -58,7 +66,6 @@ fun LoginScreen(
             .background(Color.White)
             .verticalScroll(rememberScrollState())
     ) {
-        // ENCABEZADO DIAGONAL
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -76,14 +83,12 @@ fun LoginScreen(
 
         Spacer(modifier = Modifier.height(60.dp))
 
-        // FORMULARIO DE ACCESO ÚNICO
         Column(modifier = Modifier.padding(horizontal = 32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Text("Bienvenido a UNRAIT", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = NavyBlue)
             Text("Ingresa con tu cuenta institucional", fontSize = 14.sp, color = Color.Gray)
 
             Spacer(modifier = Modifier.height(48.dp))
 
-            // BOTÓN DE MICROSOFT CONECTADO
             OutlinedButton(
                 onClick = {
                     signInWithMicrosoft(
@@ -137,17 +142,14 @@ fun signInWithMicrosoft(
                 val email = user.email ?: ""
                 val nombreCompleto = user.displayName ?: ""
 
-                // 1. FILTRO DE SEGURIDAD INSTITUCIONAL EXACTO
                 if (!email.endsWith("@cdconstitucion.tecnm.mx", ignoreCase = true)) {
                     Toast.makeText(activity, "Acceso denegado: Usa tu correo institucional del TecNM", Toast.LENGTH_LONG).show()
                     firebaseAuth.signOut()
                     return@addOnSuccessListener
                 }
 
-                // 2. EXTRACCIÓN DEL NÚMERO DE CONTROL (Elimina la L de la matrícula)
                 val numControl = email.substringBefore("@").replace("L", "", ignoreCase = true)
 
-                // 3. VERIFICACIÓN EN BASE DE DATOS MYSQL
                 scope.launch {
                     try {
                         val response = UnraitApi.retrofitService.loginUsuario(LoginRequest(firebaseUid))
@@ -157,7 +159,6 @@ fun signInWithMicrosoft(
                         }
                     } catch (e: retrofit2.HttpException) {
                         if (e.code() == 404) {
-                            // Si da 404, el usuario está en Firebase pero no en MySQL -> Se va a Registro
                             Toast.makeText(activity, "Por favor completa tu perfil", Toast.LENGTH_SHORT).show()
                             onNavigateToRegistro(firebaseUid, nombreCompleto, numControl)
                         } else {
@@ -185,16 +186,62 @@ fun RegistroScreen(
     onNavigateToHome: () -> Unit,
     onNavigateToLogin: () -> Unit
 ) {
-    // Inicializamos con los valores obtenidos de la API de Microsoft
     val numControl by remember { mutableStateOf(numControlInicial) }
     val nombre by remember { mutableStateOf(nombreInicial) }
+    var telefono by remember { mutableStateOf("") }
+
+    // --- NUEVO: MENÚ DE LOCALIDAD ---
+    var localidadSeleccionada by remember { mutableStateOf("Ciudad Constitución") }
+    var expandido by remember { mutableStateOf(false) }
+    val opcionesLocalidad = listOf("Ciudad Constitución", "Ciudad Insurgentes", "Puerto San Carlos", "Villa Morelos", "Santo Domingo", "La Purísima", "San Isidro")
 
     var esConductor by remember { mutableStateOf(false) }
     var placas by remember { mutableStateOf("") }
     var modeloVehiculo by remember { mutableStateOf("") }
 
+    var fotoAutoBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    var fotoLicenciaBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    var tipoFotoActual by remember { mutableStateOf("") }
+
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+
+    val textStyleDark = TextStyle(color = NavyBlue, fontSize = 16.sp, fontWeight = FontWeight.Medium)
+
+    val launcherAuto = rememberLauncherForActivityResult(ActivityResultContracts.TakePicturePreview()) { bitmap ->
+        if (bitmap != null) {
+            fotoAutoBitmap = bitmap
+            Toast.makeText(context, "Foto del auto capturada", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    val launcherLicencia = rememberLauncherForActivityResult(ActivityResultContracts.TakePicturePreview()) { bitmap ->
+        if (bitmap != null) {
+            fotoLicenciaBitmap = bitmap
+            Toast.makeText(context, "Foto de licencia capturada", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    val permisoCamaraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
+        if (isGranted) {
+            scope.launch {
+                delay(300)
+                if (tipoFotoActual == "auto") launcherAuto.launch(null)
+                else if (tipoFotoActual == "licencia") launcherLicencia.launch(null)
+            }
+        } else {
+            Toast.makeText(context, "Permiso de cámara denegado", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    fun manejarCargaDeFoto(tipo: String) {
+        tipoFotoActual = tipo
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+            if (tipo == "auto") launcherAuto.launch(null) else launcherLicencia.launch(null)
+        } else {
+            permisoCamaraLauncher.launch(Manifest.permission.CAMERA)
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -217,13 +264,13 @@ fun RegistroScreen(
 
         Column(modifier = Modifier.padding(horizontal = 32.dp)) {
 
-            // Número de Control (Lectura Bloqueada por Seguridad)
             OutlinedTextField(
                 value = numControl,
                 onValueChange = {},
                 label = { Text("Número de Control") },
                 modifier = Modifier.fillMaxWidth(),
                 readOnly = true,
+                textStyle = textStyleDark,
                 leadingIcon = { Icon(Icons.Filled.Lock, contentDescription = null, tint = Color.Gray) },
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = Color.LightGray,
@@ -233,13 +280,13 @@ fun RegistroScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Nombre Completo (Lectura Bloqueada por Seguridad)
             OutlinedTextField(
                 value = nombre,
                 onValueChange = {},
                 label = { Text("Nombre Completo") },
                 modifier = Modifier.fillMaxWidth(),
                 readOnly = true,
+                textStyle = textStyleDark,
                 leadingIcon = { Icon(Icons.Filled.Lock, contentDescription = null, tint = Color.Gray) },
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = Color.LightGray,
@@ -247,9 +294,59 @@ fun RegistroScreen(
                 )
             )
 
+            Spacer(modifier = Modifier.height(16.dp))
+
+            OutlinedTextField(
+                value = telefono,
+                onValueChange = { telefono = it },
+                label = { Text("Teléfono (Para WhatsApp)") },
+                modifier = Modifier.fillMaxWidth(),
+                textStyle = textStyleDark,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                leadingIcon = { Icon(Icons.Filled.Phone, contentDescription = null, tint = OrangePrimary) },
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = OrangePrimary,
+                    focusedLabelColor = OrangePrimary
+                )
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // --- MENÚ DESPLEGABLE DE LOCALIDAD EN REGISTRO ---
+            ExposedDropdownMenuBox(expanded = expandido, onExpandedChange = { expandido = it }) {
+                OutlinedTextField(
+                    value = localidadSeleccionada,
+                    onValueChange = {},
+                    readOnly = true,
+                    label = { Text("Localidad Principal") },
+                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandido) },
+                    leadingIcon = { Icon(Icons.Filled.Place, contentDescription = null, tint = OrangePrimary) },
+                    modifier = Modifier.fillMaxWidth().menuAnchor(),
+                    textStyle = textStyleDark,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = OrangePrimary,
+                        focusedLabelColor = OrangePrimary
+                    )
+                )
+                ExposedDropdownMenu(
+                    expanded = expandido,
+                    onDismissRequest = { expandido = false },
+                    modifier = Modifier.background(Color.White)
+                ) {
+                    opcionesLocalidad.forEach { seleccion ->
+                        DropdownMenuItem(
+                            text = { Text(seleccion, color = NavyBlue) },
+                            onClick = {
+                                localidadSeleccionada = seleccion
+                                expandido = false
+                            }
+                        )
+                    }
+                }
+            }
+
             Spacer(modifier = Modifier.height(24.dp))
 
-            // --- SECCIÓN CONDUCTOR ---
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(containerColor = Color(0xFFF5F6F8)),
@@ -280,6 +377,7 @@ fun RegistroScreen(
                             onValueChange = { placas = it.uppercase() },
                             label = { Text("Número de Placas") },
                             modifier = Modifier.fillMaxWidth(),
+                            textStyle = textStyleDark,
                             colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = OrangePrimary, focusedLabelColor = OrangePrimary)
                         )
 
@@ -290,20 +388,38 @@ fun RegistroScreen(
                             onValueChange = { modeloVehiculo = it },
                             label = { Text("Modelo (Ej: Nissan Versa 2022)") },
                             modifier = Modifier.fillMaxWidth(),
+                            textStyle = textStyleDark,
                             colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = OrangePrimary, focusedLabelColor = OrangePrimary)
                         )
 
-                        Spacer(modifier = Modifier.height(12.dp))
+                        Spacer(modifier = Modifier.height(16.dp))
 
-                        Button(
-                            onClick = { /* Próximamente: Subir archivos a Firebase Storage */ },
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = ButtonDefaults.buttonColors(containerColor = NavyBlue),
-                            shape = RoundedCornerShape(8.dp)
-                        ) {
-                            Icon(Icons.Filled.CameraAlt, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Subir Fotos (Licencia / Auto)", color = Color.White)
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(
+                                onClick = { manejarCargaDeFoto("auto") },
+                                modifier = Modifier.weight(1f),
+                                colors = ButtonDefaults.buttonColors(containerColor = if (fotoAutoBitmap != null) Color(0xFF4CAF50) else NavyBlue),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Icon(if (fotoAutoBitmap != null) Icons.Filled.CheckCircle else Icons.Filled.DirectionsCar, contentDescription = null, tint = Color.White)
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(if (fotoAutoBitmap != null) "Auto Listo" else "Foto Auto", fontSize = 12.sp, color = Color.White)
+                                }
+                            }
+
+                            Button(
+                                onClick = { manejarCargaDeFoto("licencia") },
+                                modifier = Modifier.weight(1f),
+                                colors = ButtonDefaults.buttonColors(containerColor = if (fotoLicenciaBitmap != null) Color(0xFF4CAF50) else NavyBlue),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Icon(if (fotoLicenciaBitmap != null) Icons.Filled.CheckCircle else Icons.Filled.Badge, contentDescription = null, tint = Color.White)
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(if (fotoLicenciaBitmap != null) "Licencia Lista" else "Licencia", fontSize = 12.sp, color = Color.White)
+                                }
+                            }
                         }
                     }
                 }
@@ -311,18 +427,24 @@ fun RegistroScreen(
 
             Spacer(modifier = Modifier.height(32.dp))
 
-            // BOTÓN GUARDAR EN MYSQL LOCAL VIA RETROFIT
             Button(
                 onClick = {
+                    if (telefono.isEmpty()) {
+                        Toast.makeText(context, "El número de WhatsApp es obligatorio", Toast.LENGTH_SHORT).show()
+                        return@Button
+                    }
+
                     scope.launch {
                         try {
                             val request = RegistroRequest(
                                 firebase_uid = firebaseUid,
                                 num_control = numControl,
                                 nombre = nombre,
+                                telefono = telefono,
                                 es_conductor = esConductor,
                                 placas = if (esConductor) placas else null,
-                                modelo_vehiculo = if (esConductor) modeloVehiculo else null
+                                modelo_vehiculo = if (esConductor) modeloVehiculo else null,
+                                localidad = localidadSeleccionada // <-- SE ENVÍA LA LOCALIDAD
                             )
 
                             val response = UnraitApi.retrofitService.registrarUsuario(request)
@@ -333,8 +455,10 @@ fun RegistroScreen(
                             } else {
                                 Toast.makeText(context, response.message, Toast.LENGTH_LONG).show()
                             }
+                        } catch (e: retrofit2.HttpException) {
+                            Toast.makeText(context, "Error del servidor: Revisa tus datos", Toast.LENGTH_LONG).show()
                         } catch (e: Exception) {
-                            Toast.makeText(context, "Error guardando datos localmente", Toast.LENGTH_LONG).show()
+                            Toast.makeText(context, "Error de red: Verifica tu IP o Servidor", Toast.LENGTH_LONG).show()
                             e.printStackTrace()
                         }
                     }
